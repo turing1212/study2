@@ -1,7 +1,7 @@
 %% Load data
 load('meats.mat');
-X = zscore(meats(:,1:100));
-Y = zscore(meats(:,101:103));
+X = meats(:,1:100);
+Y = meats(:,101:103);
 %max_components = size(X_train_inner,2);
 max_components = 20;
 
@@ -14,6 +14,7 @@ outer_CV = cvpartition(size(Y,1),'KFold',K);
 %% Preallocate arrays to store results
 cellMSEinner = cell(K,1);
 cellVARinner = cell(K,1);
+turningPoint = zeros(K,num_repeats);
 opti_ncomp = zeros(K,1);
 MSEouter = zeros(K,1);
 BETAouter = cell(K,1);
@@ -23,10 +24,10 @@ for k = 1:K
     % Split data into training and test sets for this fold
     train_id = training(outer_CV,k);
     test_id = test(outer_CV,k);
-    X_train = X(train_id,:);
-    Y_train = Y(train_id,:);
-    X_test = X(test_id,:);
-    Y_test = Y(test_id,:);
+    X_train_raw = X(train_id,:);
+    Y_train_raw = Y(train_id,:);
+    X_test_raw = X(test_id,:);
+    Y_test_raw = Y(test_id,:);
     
     % Preallocate space to store results
     MSEinner = zeros(max_components,num_repeats);
@@ -36,15 +37,21 @@ for k = 1:K
     for r = 1:num_repeats
         % Define the inner cross-validation settings
         % rng(?)
-        inner_CV = cvpartition(size(Y_train,1),'HoldOut',0.3);
+        inner_CV = cvpartition(size(X_train_raw,1),'HoldOut',0.3);
         
         % Split data into training and validation sets for this repeat
         train_idx = training(inner_CV,1);
         val_idx = test(inner_CV,1);
-        X_train_inner = X_train(train_idx,:);
-        Y_train_inner = Y_train(train_idx,:);
-        X_val = X_train(val_idx,:);
-        Y_val = Y_train(val_idx,:);
+        X_train_inner_raw = X_train_raw(train_idx,:);
+        Y_train_inner_raw = Y_train_raw(train_idx,:);
+        X_val_raw = X_train_raw(val_idx,:);
+        Y_val_raw = Y_train_raw(val_idx,:);
+        
+        % standardization
+        X_train_inner = zscore(X_train_inner_raw);
+        Y_train_inner = zscore(Y_train_inner_raw);
+        X_val = (X_val_raw - mean(X_train_inner_raw)) ./ std(X_train_inner_raw);
+        Y_val = (Y_val_raw - mean(Y_train_inner_raw)) ./ std(Y_train_inner_raw);
         
         % Perform partial least squares regression with different numbers of components
         %max_components = min(size(X_train_inner,2),size(X_train_inner,1)-1);
@@ -55,7 +62,13 @@ for k = 1:K
             MSEinner(c,r) = mean(sum((Y_val-Y_val_pred).^2,2));
             VARinner(c,r) = sum(PCTVAR(2,:));
         end
-                                                                                                                                                                                                                                                                                                                                                                                         
+        
+         % Select the optimal number of components based on validation error, method 3
+         slope = (MSEinner(max_components,r) - MSEinner(1,r)) / (max_components-1);
+         b = MSEinner(1,r) - slope*1; 
+         abdistance = abs(slope*num_components + b - MSEinner(:,r));
+         [~, tp] = max(abdistance);
+         turningPoint(k,r) = tp;
     end
     
     % store results for plot
@@ -64,14 +77,23 @@ for k = 1:K
     
     %% Re-fit model
     % tabulate(opti_ncomp_rep)
-    % Select the optimal number of components based on validation error, method 1
+    % Select the optimal number of components based on mean minimun validation error, method 1
 %     MSEval = mean(MSEinner,2);
 %     [~,opt_idx] = min(MSEval);
 %     opti_ncomp(k) = num_components(opt_idx);
     
-    % Select the optimal number of components based on validation error, method 2
-    [~,opti_ncomp_rep] = min(MSEinner);
-    opti_ncomp(k) = mode(opti_ncomp_rep);
+     % Select the optimal number of components based on mode of best perfromance, method 2
+%     [~,opti_ncomp_rep] = min(MSEinner);
+%     opti_ncomp(k) = mode(opti_ncomp_rep);
+    
+    % Select the optimal number of components based on mode of turning point, method 3
+    opti_ncomp(k) = mode(turningPoint(k,:));
+    
+    % standardize data
+    X_train = zscore(X_train_raw);
+    Y_train = zscore(Y_train_raw);
+    X_test = (X_test_raw -mean(X_train_raw)) ./ std(X_train_raw);
+    Y_test = (Y_test_raw -mean(Y_train_raw)) ./ std(Y_train_raw);
     
     % Re-fit the model on the full training set with the optimal number of components
     [~,~,~,~,beta,~,~,stats] = plsregress(X_train,Y_train,opti_ncomp(k));
