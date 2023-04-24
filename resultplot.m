@@ -29,19 +29,19 @@ title('Percent of variance explained versus Number of Components');
 %% Draw scatter plot of Ypredicted and Y (use model with best performance)
 figure(3)
 subplot(1,3,1)
-scatter(Y_test(:,1), Y_pred(:,1),[],'r','filled')
+scatter(Yreal(:,1), Ypred(:,1),[],'r','filled')
 hline = refline([1 0]);
 xlabel('Predicted water');
 ylabel('Water');
 
 subplot(1,3,2)
-scatter(Y_test(:,2), Y_pred(:,2),[],'b','filled')
+scatter(Yreal(:,2), Ypred(:,2),[],'b','filled')
 hline = refline([1 0]);
 xlabel('Predicted fat');
 ylabel('Fat');
 
 subplot(1,3,3)
-scatter(Y_test(:,3), Y_pred(:,3),[],'g','filled')
+scatter(Yreal(:,3), Ypred(:,3),[],'g','filled')
 hline = refline([1 0]);
 xlabel('Predicted protein');
 ylabel('Protein');
