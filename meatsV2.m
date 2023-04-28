@@ -4,7 +4,8 @@ X = meats(:,1:100);
 Y = meats(:,101:103);
 %max_components = size(X_train_inner,2);
 max_components = 20;
-
+Yreal = zeros(size(Y,1),size(Y,2));
+Ypred = zeros(size(Y,1),size(Y,2));
 %% Define the outer cross-validation settings
 K = 10; % Number of folds
 num_repeats = 50; % Number of times to repeat the inner loop
@@ -19,6 +20,7 @@ opti_ncomp = zeros(K,1);
 MSEouter = zeros(K,1);
 BETAouter = cell(K,1);
 Wouter = cell(K,1);
+VIPouter = zeros(K,size(X,2));
 %% Outer cross-validation loop
 for k = 1:K
     % Split data into training and test sets for this fold
@@ -60,13 +62,15 @@ for k = 1:K
             [~,~,~,~,beta,PCTVAR] = plsregress(X_train_inner,Y_train_inner,num_components(c));
             Y_val_pred = [ones(size(X_val,1),1) X_val]*beta;
             MSEinner(c,r) = mean(sum((Y_val-Y_val_pred).^2,2));
-            VARinner(c,r) = sum(PCTVAR(2,:));
+            VarExpTotal = sum(var(Y_val_pred)) / sum(var(Y_val));
+            VarExpEach = var(Y_val_pred) ./ var(Y_val);
+            VARinner(c,r) = [VarExpTotal VarExpEach];
         end
         
          % Select the optimal number of components based on validation error, method 3
          slope = (MSEinner(max_components,r) - MSEinner(1,r)) / (max_components-1);
          b = MSEinner(1,r) - slope*1; 
-         abdistance = abs(slope*num_components + b - MSEinner(:,r));
+         abdistance = abs(slope.*num_components + b - MSEinner(:,r)');
          [~, tp] = max(abdistance);
          turningPoint(k,r) = tp;
     end
@@ -88,6 +92,7 @@ for k = 1:K
     
     % Select the optimal number of components based on mode of turning point, method 3
     opti_ncomp(k) = mode(turningPoint(k,:));
+    tabulate(turningPoint(k,:))
     
     % standardize data
     X_train = zscore(X_train_raw);
@@ -96,40 +101,53 @@ for k = 1:K
     Y_test = (Y_test_raw -mean(Y_train_raw)) ./ std(Y_train_raw);
     
     % Re-fit the model on the full training set with the optimal number of components
-    [~,~,~,~,beta,~,~,stats] = plsregress(X_train,Y_train,opti_ncomp(k));
+    [XL,YL,XS,YS,beta,~,~,stats] = plsregress(X_train,Y_train,opti_ncomp(k));
     
     % Compute the MSE for this fold
     Y_test_pred = [ones(size(X_test,1),1) X_test]*beta;
     MSEouter(k) = mean(sum((Y_test - Y_test_pred).^2,2));
     BETAouter{k,1} = beta;
     Wouter{k,1} = stats.W;
+    
+    % Compute predicted Y for this fold
+%     % method 1
+%     Yreal(test_id,:) = Y_test;
+%     Ypred(test_id,:) = Y_test_pred;
+    % method 2
+    Ypred(test_id,:) = Y_test_pred .* std(Y_train_raw) + mean(Y_train_raw);
+    
+    % Compute VIP for this fold
+    W0 = stats.W ./ sqrt(sum(stats.W.^2,1));
+    p = size(XL,1);
+    sumSq = sum(XS.^2,1).*sum(YL.^2,1);
+    VIPscore = sqrt(p* sum(sumSq.*(W0.^2),2) ./ sum(sumSq,2));
+    
+    sumSqEach = sum(XS.^2,1).* (YL.^2);
+    m = size(Y_test,2);
+    vipScoreEach = zeros(m,p);
+    for eachY = 1:m
+        sumSqofYi = sumSqm(eachY,:);
+        vipScoreEach(eachY,:) = sqrt(p* sum(sumSqofYi.*(W0.^2),2) ./ sum(sumSqofYi,2));
+    end
+    
 end
 
+
+
 %% Estiblish the best model 
+
 % Find the optimal ncomp in outer test
 [~, best_idx] = min(MSEouter);
-mean_MSEouter = mean(MSEouter);
+% mean_MSEouter = mean(MSEouter);
 opti_comp_outer = opti_ncomp(best_idx);
 
-% reestiblish the best model
-% X_train = X(outer_CV.training(best_idx),:);
-% Y_train = Y(outer_CV.training(best_idx),:);
-X_test = X(outer_CV.test(best_idx),:);
-Y_test = Y(outer_CV.test(best_idx),:);
-Y_pred = [ones(size(X_test,1),1) X_test]*BETAouter{best_idx,1};
 
-% calculate VIP
-statsW = Wouter{best_idx,1};
-W0 = statsW ./ sqrt(sum(statsW,1));
-p = size(XL,1);
-sumSq = sum(XS.^2,1).*sum(YL.^2,1);
-vipScore = sqrt(p* sum(sumSq.*(W0.^2),2) ./ sum(sumSq,2));
-indVIP = find(vipScore >= 1);
-scatter(1:length(vipScore),vipScore,'x')
-hold on
-scatter(indVIP,vipScore(indVIP),'rx')
-plot([1 length(vipScore)],[1 1],'--k')
-hold off
-axis tight
-xlabel('Predictor Variables')
-ylabel('VIP Scores')
+pctVar = [sum(abs(Xloadings).^2,1) ./ sum(sum(abs(X0).^2,1));
+         sum(abs(Yloadings).^2,1) ./ sum(sum(abs(Y0).^2,1))];
+     
+     
+     
+     
+     
+     
+     
